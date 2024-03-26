@@ -1,9 +1,7 @@
 package com.kafka.springjwt.config;
 
-import com.kafka.springjwt.service.CustomUserDetailsServcie;
-import org.apache.kafka.common.config.types.Password;
+import com.kafka.springjwt.service.CustomUserDetailsServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cglib.proxy.NoOp;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -12,8 +10,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.password.NoOpPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
@@ -21,40 +18,44 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class JwtConfiguration extends WebSecurityConfigurerAdapter {
 
     @Autowired
-    CustomUserDetailsServcie customuserdetails;
+    private JWTAuthenticationFilter jwtAuthFilter;
+
     @Autowired
-    JwtAuthenticationFilter jwtfilter;
+    private JwtAuthenticationEntryPoint entryPoint;
     @Autowired
-    JwtAuthenticationEntryPoint entrypoint;
+    private CustomUserDetailsServiceImpl userDetailsService;
+
+    public JwtConfiguration(JWTAuthenticationFilter jwtAuthFilter, JwtAuthenticationEntryPoint entryPoint) {
+        this.jwtAuthFilter = jwtAuthFilter;
+        this.entryPoint = entryPoint;
+    }
+
     @Override
     protected void configure(HttpSecurity http) throws Exception {
         http.csrf().disable()
                 .cors().disable()
                 .authorizeRequests()
-                .antMatchers("/token").permitAll()
-                .anyRequest()
-                .authenticated()
+                .antMatchers("/token", "/register").permitAll()
                 .and()
                 .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 .and()
-                .exceptionHandling().authenticationEntryPoint(entrypoint);
+                .exceptionHandling().authenticationEntryPoint(entryPoint);
 
-        http.addFilterBefore(jwtfilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
     }
+
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.userDetailsService(customuserdetails);
+        auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
     }
-
-    @Bean
-    public PasswordEncoder passwordEncoder()
-    {
-        return NoOpPasswordEncoder.getInstance();
-    }
-
     @Bean
     public AuthenticationManager authenticationManagerBean() throws Exception {
         return super.authenticationManagerBean();
+    }
+
+    @Bean
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 }
