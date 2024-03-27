@@ -1,6 +1,5 @@
 package com.kafka.springjwt.scheduler;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kafka.springjwt.entity.DeviceInformation;
 import com.mongodb.client.MongoCollection;
@@ -8,9 +7,9 @@ import com.mongodb.client.model.UpdateOptions;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.TopicPartition;
 import org.bson.Document;
-import org.json.JSONException;
-import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,18 +17,16 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
-import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Component
 public class KafkaMongoDBScheduler {
@@ -42,60 +39,61 @@ public class KafkaMongoDBScheduler {
     @Autowired
     private MongoTemplate mongoTemplate;
 
-    // Variable to store the last processed message
-    private String lastProcessedMessageIdentifier;
+    private static final String CONSUMER_GROUP_ID = "test-consumer-group";
+    private static final String TOPIC_NAME = "Test-Topic";
 
-    public KafkaMongoDBScheduler() {
-        // Load the last processed message identifier from MongoDB
-        lastProcessedMessageIdentifier = loadLastProcessedMessageIdentifier();
+    private boolean initialized = false;
+    @PostConstruct
+    public void init() {
+        // Subscribe to the topic
+        kafkaConsumer.subscribe(Collections.singletonList(TOPIC_NAME));
     }
-
     @Scheduled(fixedDelay = 60000) // 10 minutes
     public void fetchAndSaveMessages() {
+        if (!initialized) {
+            // Seek to the last committed offset for each partition
+            kafkaConsumer.seekToEnd(kafkaConsumer.assignment());
+            kafkaConsumer.poll(Duration.ZERO); // Poll without blocking to trigger assignment
+            kafkaConsumer.seekToBeginning(kafkaConsumer.assignment()); // Reset to beginning for further consumption
+            initialized = true;
+
+            // Log information about seeking to the last committed offset
+            for (TopicPartition partition : kafkaConsumer.assignment()) {
+                long position = kafkaConsumer.position(partition);
+                logger.info("Seeking to last committed offset for partition {}: {}", partition, position);
+            }
+        }
+
         LocalDateTime currentTime = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         String formattedTime = currentTime.format(formatter);
         logger.info("Scheduler started at {}", formattedTime);
 
-        kafkaConsumer.subscribe(Collections.singletonList("test-topic"));
-
-        // Seek to the last processed message identifier
-        if (lastProcessedMessageIdentifier != null) {
-            kafkaConsumer.seekToEnd(kafkaConsumer.assignment());
-        }
-
         ConsumerRecords<String, DeviceInformation> records = kafkaConsumer.poll(Duration.ofMillis(10000));
 
-        for (ConsumerRecord<String, DeviceInformation> record : records) {
-            DeviceInformation message = record.value();
-            String messageIdentifier = getMessageIdentifier(message);
+        try {
+            for (ConsumerRecord<String, DeviceInformation> record : records) {
+                DeviceInformation message = record.value();
 
-            if (lastProcessedMessageIdentifier == null || messageIdentifier.compareTo(lastProcessedMessageIdentifier) > 0) {
-                // Check if message already exists in MongoDB
                 if (!isMessageAlreadyExists(message)) {
-                    // New message found, save it to MongoDB
                     saveMessageToMongoDB(message);
                     logger.info("New data added to MongoDB: {}", message);
-                    lastProcessedMessageIdentifier = messageIdentifier;
-                    storeLastProcessedMessageIdentifier(lastProcessedMessageIdentifier);
                 } else {
-                    // Message already exists in MongoDB
                     logger.info("Data found in Kafka but already exists in MongoDB: {}", message);
                 }
             }
+
+            // Commit offsets after processing the records
+            kafkaConsumer.commitSync();
+        } catch (Exception e) {
+            logger.error("Error occurred while processing records", e);
         }
 
         if (records.isEmpty()) {
             logger.info("No data found in Kafka topic.");
         }
-    }
 
-    // Extract a unique identifier from the message
-    private String getMessageIdentifier(DeviceInformation message) {
-        return message.getDeviceID(); // You can change this based on your message structure
     }
-
-    // Check if the message already exists in MongoDB
     private boolean isMessageAlreadyExists(DeviceInformation message) {
         Query query = new Query();
         query.addCriteria(Criteria.where("deviceID").is(message.getDeviceID()));
@@ -104,36 +102,5 @@ public class KafkaMongoDBScheduler {
 
     private void saveMessageToMongoDB(DeviceInformation message) {
         mongoTemplate.save(message, "Data");
-    }
-
-    // Load the last processed message identifier from MongoDB
-    private String loadLastProcessedMessageIdentifier() {
-        try {
-            // Assuming you have a MongoDB collection named "metadata" with a document storing the last processed message identifier
-            MongoCollection<Document> metadataCollection = mongoTemplate.getCollection("metadata");
-
-            if (metadataCollection != null) {
-                Document metadataDoc = metadataCollection.find().first();
-                if (metadataDoc != null && metadataDoc.containsKey("lastProcessedMessageIdentifier")) {
-                    return metadataDoc.getString("lastProcessedMessageIdentifier");
-                } else {
-                    logger.warn("No 'lastProcessedMessageIdentifier' field found in the metadata document");
-                }
-            } else {
-                logger.error("Unable to get the 'metadata' collection from MongoDB");
-            }
-        } catch (Exception e) {
-            logger.error("Error occurred while loading last processed message identifier", e);
-        }
-        return null;
-    }
-
-    // Store the last processed message identifier in MongoDB
-    private void storeLastProcessedMessageIdentifier(String messageIdentifier) {
-        // Assuming you have a MongoDB collection named "metadata" with a document storing the last processed message identifier
-        MongoCollection<Document> metadataCollection = mongoTemplate.getCollection("metadata");
-
-        Document updateDoc = new Document("$set", new Document("lastProcessedMessageIdentifier", messageIdentifier));
-        metadataCollection.updateOne(new Document(), updateDoc, new UpdateOptions().upsert(true));
     }
 }

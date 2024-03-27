@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class KafkaProducerServiceImpl implements KafkaProducerService {
-    private static final String TOPIC = "test-topic";
+    private static final String TOPIC = "Test-Topic";
 
     KafkaConsumer<String,DeviceInformation> KafkaConsumer;
     @Autowired

@@ -6,4 +6,6 @@ public interface TokenGenerationRepository {
     RolesEntity getDetailByUsername(String username);
 
     boolean checkCredentials(String username, String password);
+
+    String getRoleByUsername(String username);
 }

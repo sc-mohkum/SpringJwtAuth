@@ -1,6 +1,7 @@
 package com.kafka.springjwt.service;
 
 import com.kafka.springjwt.entity.RolesEntity;
+import com.kafka.springjwt.exceptions.ExceptionHandlerController;
 import com.kafka.springjwt.repository.TokenGenerationRepositoryImpl;
 import com.kafka.springjwt.repository.UserRegisterRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,13 +22,16 @@ public class CustomUserDetailsServiceImpl implements UserDetailsService {
 
     @Autowired
     private TokenGenerationRepositoryImpl tokenGenerationRepository;
+    @Autowired
+    private ExceptionHandlerController exceptionHandlerController;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         RolesEntity rolesEntity = tokenGenerationRepository.getDetailByUsername(username);
 
         if (rolesEntity == null) {
-            throw new UsernameNotFoundException("User not found with username: " + username);
+            exceptionHandlerController.handleRuntimeException(new UsernameNotFoundException("User not found with username: " + username), null);
+
         }
 
         List<GrantedAuthority> authorities = new ArrayList<>();

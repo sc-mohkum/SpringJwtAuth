@@ -19,8 +19,8 @@ public class SpringJwtTokenController {
     private JwtTokenService jwtTokenService;
 
     @PostMapping(value = "/token")
-    public ResponseEntity<?> getToken(@RequestBody JwtEntity jwtEntity) {
-        String token = jwtTokenService.authenticateAndGetToken(jwtEntity.getUserName(), jwtEntity.getPassword());
-        return ResponseEntity.ok(new JwtResponse(token));
+    public ResponseEntity<Object> getToken(@RequestBody JwtEntity jwtEntity) {
+        return jwtTokenService.authenticateAndGetToken(jwtEntity.getUserName(), jwtEntity.getPassword());
     }
+
 }

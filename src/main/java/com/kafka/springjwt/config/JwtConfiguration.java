@@ -1,5 +1,6 @@
 package com.kafka.springjwt.config;
 
+import com.kafka.springjwt.exceptions.ExceptionHandlerController;
 import com.kafka.springjwt.service.CustomUserDetailsServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -24,6 +25,8 @@ public class JwtConfiguration extends WebSecurityConfigurerAdapter {
     private JwtAuthenticationEntryPoint entryPoint;
     @Autowired
     private CustomUserDetailsServiceImpl userDetailsService;
+    @Autowired
+    private ExceptionHandlerController exceptionHandlerController;
 
     public JwtConfiguration(JWTAuthenticationFilter jwtAuthFilter, JwtAuthenticationEntryPoint entryPoint) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -47,11 +50,20 @@ public class JwtConfiguration extends WebSecurityConfigurerAdapter {
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
+        try {
+            auth.userDetailsService(userDetailsService()).passwordEncoder(passwordEncoder());
+        } catch (Exception e) {
+            exceptionHandlerController.handleAllExceptions(e, null);
+        }
     }
     @Bean
     public AuthenticationManager authenticationManagerBean() throws Exception {
-        return super.authenticationManagerBean();
+        try {
+            return super.authenticationManagerBean();
+        } catch (Exception e) {
+            exceptionHandlerController.handleAllExceptions(e, null);
+            return null;
+        }
     }
 
     @Bean
